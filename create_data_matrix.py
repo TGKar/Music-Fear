@@ -12,14 +12,14 @@ class MixedModel:
     fearful tracks
     """
     def __init__(self, alpha):
-        self.classification_clf = linear_model.LogisticRegression(penalty='l1', C=alpha, solver='saga')
+        self.classification_clf = linear_model.LogisticRegression()
         self.regression_clf = linear_model.Lasso(alpha=alpha)
         self.non_scary_score = 0
 
     def fit(self, x_train, y_train):
         scary_slicer = y_train >= 2
-        non_scary = np.array(~scary_slicer, dtype=int)
-        self.classification_clf.fit(x_train, non_scary)
+        print("True spooky scary: " + str(np.sum(scary_slicer) / len(y_train)))
+        self.classification_clf.fit(x_train, np.array(~scary_slicer, dtype=int))
         self.regression_clf.fit(x_train, y_train)
         self.non_scary_score = np.mean(y_train[~scary_slicer])
 
@@ -27,9 +27,10 @@ class MixedModel:
         y_hat = np.zeros(x_predict.shape[0])
         non_scary_class = self.classification_clf.predict(x_predict)
         y_hat[non_scary_class == 1] = self.non_scary_score
-        if np.sum(non_scary_class == 0) > 0:
-            scary_y_hat = self.regression_clf.predict(x_predict[non_scary_class == 0, :])
-            y_hat[non_scary_class == 0] = scary_y_hat
+        print("predicted spooky scary: " + str(np.sum(non_scary_class==0) / len(y_hat)))
+        if np.any(non_scary_class == 0):
+            scary_y_hat = self.regression_clf.predict(x_predict)
+            y_hat[non_scary_class == 0] = scary_y_hat[non_scary_class == 0]
         return y_hat
 
     def score(self, x_score, y_score):
@@ -70,7 +71,8 @@ reps = 100
 for i in range(reps):
     inds = np.arange(len(y))
     np.random.shuffle(inds)
-    model = MixedModel(0.005)  # try 0.01
+    model = linear_model.Lasso(alpha=0.005)  # try 0.01
+    #model = MixedModel(alpha=0.01)
     model.fit(x[inds[:300], :], y[inds[:300]])
     y_hat = model.predict(x)
     y_hat = np.maximum(np.minimum(8*np.ones(len(y_hat)), y_hat), np.ones(len(y_hat)))
@@ -80,12 +82,12 @@ for i in range(reps):
     # Compute accuracy for not scary tracks (<2)
     test_y = y[inds[300:]]
     test_y_hat = y_hat[inds[300:]]
-    low_fear_acc += np.mean(test_y_hat[test_y < 2] < 2)
+    low_fear_acc += np.mean(np.abs(test_y_hat[test_y < 2] - test_y[test_y < 2]))
 
 acc /= reps
 r2 /= reps
 low_fear_acc /= reps
 
-print("Test mean error" + str(acc))
+print("Test mean error: " + str(acc))
 print("Test mean R squared: " + str(r2))
 print("Test mean success for not scary: " + str(low_fear_acc))
