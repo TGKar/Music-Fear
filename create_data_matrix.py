@@ -5,39 +5,6 @@ import matplotlib.pyplot as plt
 from sklearn import linear_model
 from sklearn import metrics
 
-
-class MixedModel:
-    """
-    Model that classifies non-scary tracks, and performs regression to estimate the amount of fear for
-    fearful tracks
-    """
-    def __init__(self, alpha):
-        self.classification_clf = linear_model.LogisticRegression()
-        self.regression_clf = linear_model.Lasso(alpha=alpha)
-        self.non_scary_score = 0
-
-    def fit(self, x_train, y_train):
-        scary_slicer = y_train >= 2
-        print("True spooky scary: " + str(np.sum(scary_slicer) / len(y_train)))
-        self.classification_clf.fit(x_train, np.array(~scary_slicer, dtype=int))
-        self.regression_clf.fit(x_train, y_train)
-        self.non_scary_score = np.mean(y_train[~scary_slicer])
-
-    def predict(self, x_predict):
-        y_hat = np.zeros(x_predict.shape[0])
-        non_scary_class = self.classification_clf.predict(x_predict)
-        y_hat[non_scary_class == 1] = self.non_scary_score
-        print("predicted spooky scary: " + str(np.sum(non_scary_class==0) / len(y_hat)))
-        if np.any(non_scary_class == 0):
-            scary_y_hat = self.regression_clf.predict(x_predict)
-            y_hat[non_scary_class == 0] = scary_y_hat[non_scary_class == 0]
-        return y_hat
-
-    def score(self, x_score, y_score):
-        return metrics.r2_score(self.predict(x_score), y_score)
-
-
-
 def create_data_mat(csv_path='./set1/mp3/Soundtrack360_mp3/'):
 
     os.chdir(csv_path)
@@ -57,37 +24,49 @@ def create_data_mat(csv_path='./set1/mp3/Soundtrack360_mp3/'):
     data_mat = (data_mat - feature_min) / (feature_max - feature_min)  # Normalize
     np.savetxt('data_mat.csv', data_mat, delimiter=',')
 
-
-
-#create_data_mat()  #Uncomment to create data matrix from individual features csvs
-x = np.loadtxt('data_mat.csv', delimiter=',')
-y = np.loadtxt('fear_ratings.csv', delimiter=',')
-
 # Compute test error
-acc = 0
-r2 = 0
-low_fear_acc = 0
-reps = 100
-for i in range(reps):
-    inds = np.arange(len(y))
-    np.random.shuffle(inds)
-    model = linear_model.Lasso(alpha=0.005)  # try 0.01
-    #model = MixedModel(alpha=0.01)
-    model.fit(x[inds[:300], :], y[inds[:300]])
+def calc_test_error(x, y, alpha):
+    mean_err = 0
+    r2 = 0
+    test_slicer = int(5 * len(y) / 6)
+    reps = 100
+    for i in range(reps):
+        inds = np.arange(len(y))
+        np.random.shuffle(inds)
+        model = linear_model.Lasso(alpha=alpha)  # try 0.01
+        model.fit(x[inds[:test_slicer], :], y[inds[:test_slicer]])
+        y_hat = model.predict(x)
+        y_hat = np.maximum(np.minimum(8*np.ones(len(y_hat)), y_hat), np.ones(len(y_hat)))
+        mean_err += np.mean(np.abs(y[inds[test_slicer:]] - y_hat[inds[test_slicer:]]))
+        r2 += metrics.r2_score(y[inds[test_slicer:]], y_hat[inds[test_slicer:]])
+
+    mean_err /= reps
+    r2 /= reps
+
+    return mean_err, r2
+
+def calc_training_error(x, y, alpha):
+    model = linear_model.Lasso(alpha=alpha)
+    # model = linear_model.LinearRegression()  # try 0.01
+    model.fit(x, y)
     y_hat = model.predict(x)
-    y_hat = np.maximum(np.minimum(8*np.ones(len(y_hat)), y_hat), np.ones(len(y_hat)))
-    acc += np.mean(np.abs(y[inds[300:]] - y_hat[inds[300:]]))
-    r2 += metrics.r2_score(y[inds[300:]], y_hat[inds[300:]])
+    y_hat = np.maximum(np.minimum(8 * np.ones(len(y_hat)), y_hat), np.ones(len(y_hat)))
+    mean_error = np.mean(np.abs(y - y_hat))
+    r2 = metrics.r2_score(y, y_hat)
+    return mean_error, r2
 
-    # Compute accuracy for not scary tracks (<2)
-    test_y = y[inds[300:]]
-    test_y_hat = y_hat[inds[300:]]
-    low_fear_acc += np.mean(np.abs(test_y_hat[test_y < 2] - test_y[test_y < 2]))
 
-acc /= reps
-r2 /= reps
-low_fear_acc /= reps
+# create_data_mat()  #Uncomment to create data matrix from individual features csvs
+features = np.loadtxt('data_mat.csv', delimiter=',')
+fear_rating = np.loadtxt('fear_ratings.csv', delimiter=',')
+normalization_const = 0.01
 
-print("Test mean error: " + str(acc))
-print("Test mean R squared: " + str(r2))
-print("Test mean success for not scary: " + str(low_fear_acc))
+mean_train_error, train_r2 = calc_training_error(features, fear_rating, normalization_const)
+print("Train mean error: " + str(mean_train_error))
+print("Train mean R squared: " + str(train_r2))
+
+
+mean_test_error, test_r2 = calc_test_error(features, fear_rating, normalization_const)
+print("Test mean error: " + str(mean_test_error))
+print("Test mean R squared: " + str(test_r2))
+
