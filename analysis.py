@@ -83,5 +83,3 @@ mean_test_error, test_r2 = calc_test_error(features, fear_rating, normalization_
 print("Test mean error: " + str(mean_test_error))
 print("Test mean R squared: " + str(test_r2))
 
-# feature_names =
-# feature_importance =
